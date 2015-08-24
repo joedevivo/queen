@@ -1,0 +1,23 @@
+%%-*- mode: erlang -*-
+{application, queen,
+ [
+  {description, "queen"},
+  {vsn, "1"},
+  {modules, []},
+  {registered, []},
+  {applications, [
+                  kernel,
+                  stdlib,
+                  inets,
+                  crypto,
+                  pooler,
+                  sqerl,
+                  mochiweb,
+                  webmachine
+                 ]},
+  {mod, { queen_app, []}},
+  {env, [
+      {web_ip, "0.0.0.0"},
+      {web_port, 8080}
+  ]}
+ ]}.
