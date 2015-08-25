@@ -1361,3 +1361,146 @@ from_json(Req, State) ->
     NewReq = wrq:set_resp_body(ResponseBody, Req),
     {true, NewReq, State}.
 ```
+
+## Post some jibberish!
+
+This works great if you're really good at POSTing JSON, but what if
+you post bad JSON or even not JSON at all? I bet we'd get a `500`
+error because the code blows up in `jiffy:decode/1`, but we want it to
+return a `400` because this *IS* a malformed request. Why have status
+codes if we aren't going to use them?
+
+So, a test then.
+
+```erlang
+bad_json_returns_400(_Config) ->
+    {ok, "400", ResponseHeaders, ResponseBody } = ibrowse:send_req(
+         "http://localhost:8080/albums", [
+        {"Content-Type", "application/json"},
+        {"Accept", "application/json"}
+        ], post, "htasgo8ae{hwgs"),
+    ct:pal("Response: ~p", [ResponseBody]),
+    ok.
+```
+
+Just as we thought! Look at the common_test output below! We got a 500
+back.
+
+```
+*** CT Error Notification 2015-08-25 11:50:24.688 ***
+basic_test_SUITE:bad_json_returns_400 failed on line 56
+Reason: {badmatch,{ok,"500",
+    [{"Vary","Accept"},
+     {"Server",...}
+```
+
+We're going to have to implement another webmachine callback and guess
+what it's called? `malformed_request`
+
+This is going to involve some handling of jiffy's error too.
+
+```erlang
+malformed_request(ReqData, State) ->
+    %% This runs on every request, but we only want it to happen on POST
+    case wrq:method(ReqData) of
+        'POST' ->
+            BinMaybeJSON = wrq:req_body(ReqData),
+            {JSON, IsMalformed} = try jiffy:decode(BinMaybeJSON) of
+                DefinitelyJSON ->
+                    {DefinitelyJSON, false}
+            catch
+                _:_ ->
+                    {undefined, true}
+            end,
+            {IsMalformed, ReqData, State};
+        _ ->
+            {false, ReqData, State}
+        end.
+```
+
+So this is great. We're catching an error and returning `400` at the right
+time. Our new test passes, but there's still a problem.
+
+While this works, you might have noticed that we're now running a `jiffy:decode`
+on the POST body twice now. It'd be nice if we saved the work done by the
+malformed_request callback. Well, we can, that's what the State is for.
+
+First, let's add a place for it in the resource state.
+
+```erlang
+-record(q_album_resource_state, {
+    albums = [],
+    decoded_body = undefined
+}).
+```
+
+`decoded_body`!
+
+Let's modify the `malformed_request` callback to use it.
+
+```erlang
+malformed_request(ReqData, State) ->
+    %% This runs on every request, but we only want it to happen on POST
+    case wrq:method(ReqData) of
+        'POST' ->
+            BinMaybeJSON = wrq:req_body(ReqData),
+            {JSON, IsMalformed} = try jiffy:decode(BinMaybeJSON) of
+                DefinitelyJSON ->
+                    {DefinitelyJSON, false}
+            catch
+                _:_ ->
+                    {undefined, true}
+            end,
+            {IsMalformed, ReqData, State#q_album_resource_state{decoded_body=JSON}};
+        _ ->
+            {false, ReqData, State}
+        end.
+```
+
+The one line we changed...
+
+```erlang
+{IsMalformed, ReqData, State#q_album_resource_state{decoded_body=JSON}};
+```
+
+This callback is now returning a new copy of State with the
+`decoded_body` set to whatever we returned. Either some JSON or
+`undefined`.
+
+Now we need to use it in the `from_json` content handler.
+
+```erlang
+from_json(Req, State=#q_album_resource_state{decoded_body=JSON}) ->
+    %% Create path made us a UUID, let's get it
+    ["albums", Id] = string:tokens(wrq:disp_path(Req), "/"),
+
+    %% Now massage it into our sqerl record
+    NewAlbum = queen_album_obj:setvals(
+        [
+            {id, Id},
+            {name, ej:get([<<"name">>], JSON)},
+            {year, ej:get([<<"year">>], JSON)}
+        ],
+        queen_album_obj:'#new'()
+        ),
+
+    %% Insert It
+    [InsertedAlbum] = sqerl_rec:insert(NewAlbum),
+
+    %% Let's report back the inserted object, so we know the new UUID in the client
+    ReturnJSON = ej:set([<<"id">>], JSON, queen_album_obj:getval(id, InsertedAlbum)),
+    ResponseBody = erlang:iolist_to_binary(jiffy:encode(ReturnJSON)),
+    NewReq = wrq:set_resp_body(ResponseBody, Req),
+    {true, NewReq, State}.
+```
+
+All we did was add a pattern match to the function clause to bind
+`JSON` and then removed the bit of jiffy doing the decoding. The lines
+we removed were:
+
+```erlang
+    BinJSON = wrq:req_body(Req),
+    JSON = jiffy:decode(BinJSON),
+```
+
+I think this is a lot to take. Let's see how far we get.

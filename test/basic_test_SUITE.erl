@@ -5,7 +5,7 @@
 
 -compile([export_all]).
 
-all() -> [html, json, post_live_at_wembley].
+all() -> [html, json, post_live_at_wembley, bad_json_returns_400].
 
 init_per_testcase(_, Config) ->
     ibrowse:start(),
@@ -50,4 +50,13 @@ post_live_at_wembley(_Config) ->
     ct:pal("Response2: ~p", [ResponseBody2]),
     JSON2 = jiffy:decode(ResponseBody2),
     16 = length(JSON2),
+    ok.
+
+bad_json_returns_400(_Config) ->
+    {ok, "400", ResponseHeaders, ResponseBody } = ibrowse:send_req(
+         "http://localhost:8080/albums", [
+        {"Content-Type", "application/json"},
+        {"Accept", "application/json"}
+        ], post, "htasgo8ae{hwgs"),
+    ct:pal("Response: ~p", [ResponseBody]),
     ok.

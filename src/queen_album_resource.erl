@@ -10,14 +10,16 @@
     to_json/2,
     content_types_provided/2,
     content_types_accepted/2,
+    malformed_request/2,
     from_json/2
 ]).
 
 -include_lib("webmachine/include/webmachine.hrl").
 
 -record(q_album_resource_state, {
-    albums = []
-    }).
+    albums = [],
+    decoded_body = undefined
+}).
 
 routes() ->
     [
@@ -54,6 +56,23 @@ create_path(Req, State) ->
     Id = uuid:uuid_to_string(uuid:get_v4()),
     {"/albums/" ++ Id, Req, State}.
 
+malformed_request(ReqData, State) ->
+    %% This runs on every request, but we only want it to happen on POST
+    case wrq:method(ReqData) of
+        'POST' ->
+            BinMaybeJSON = wrq:req_body(ReqData),
+            {JSON, IsMalformed} = try jiffy:decode(BinMaybeJSON) of
+                DefinitelyJSON ->
+                    {DefinitelyJSON, false}
+            catch
+                _:_ ->
+                    {undefined, true}
+            end,
+            {IsMalformed, ReqData, State#q_album_resource_state{decoded_body=JSON}};
+        _ ->
+            {false, ReqData, State}
+        end.
+
 to_html(ReqData, State=#q_album_resource_state{albums=Albums}) ->
     HTML = "<html><body>"
     ++ "<h2>Queen Albums</h2>"
@@ -79,13 +98,9 @@ to_json(ReqData, State=#q_album_resource_state{albums=Albums}) ->
     AlbumsJSON = jiffy:encode(AlbumsForJSON),
     {AlbumsJSON, ReqData, State}.
 
-from_json(Req, State) ->
+from_json(Req, State=#q_album_resource_state{decoded_body=JSON}) ->
     %% Create path made us a UUID, let's get it
     ["albums", Id] = string:tokens(wrq:disp_path(Req), "/"),
-
-    %% Read the JSON from the request
-    BinJSON = wrq:req_body(Req),
-    JSON = jiffy:decode(BinJSON),
 
     %% Now massage it into our sqerl record
     NewAlbum = queen_album_obj:setvals(
