@@ -1074,3 +1074,229 @@ All we have to do is revert our change to init and go back into
        {fetch_all, sqerl_rec:gen_fetch_all(?MODULE, year)}
     ].
 ```
+
+## Tests!
+
+I know we should try POSTing some data next, but honestly, I'm sick of
+using a browser and rest client to send requests with different
+content-types to test things.
+
+We're going to have to write a minature test framework to spin up and
+tear down databases between tests. Let's see how we can do it.
+
+First of all, `mkdir test`. Now I'm just going to give you
+[pg_test_buddy](./test/pg_test_buddy.erl) for free. Just download it
+into your test directory and look at it on your own later. I already
+wrote it for another project. I should probably make a generic one
+some day.
+
+While we're copying things, look at
+[databass.sql](./priv/databass.sql). Copy that into your priv
+directory. You'll need it for `pg_test_buddy` to work.
+
+Since this is a web application, we're going to need an HTTP client to
+test it. We're going with `ibrowse`. Since we don't need `ibrowse` in
+production, just to test, we'll add the dependency to rebar.config's
+`test` profile. Your profiles section will look like this now:
+
+```erlang
+{profiles, [
+    {dev, [
+        {deps, [
+            {sync, ".*", {git, "git://github.com/rustyio/sync.git", {branch, "master"}}}
+        ]}
+    ]},
+    {test, [
+        {deps, [
+            {ibrowse, ".*", {git, "https://github.com/cmullaparthi/ibrowse.git", {tag, "v4.1.2"}}}
+        ]}
+    ]},
+    {prod, [
+        {relx, [
+            {dev_mode, false},
+            {include_erts, true}
+        ]}
+    ]}
+]}.
+```
+
+Now let's add a test. Create the file `test/basic_test_SUITE.erl`. All
+common_test modules end in `_SUITE`, if it doesn't, common_test won't
+even find it.
+
+Here's a boilerplate module:
+
+```erlang
+-module(basic_test_SUITE).
+
+-include_lib("eunit/include/eunit.hrl").
+-include_lib("common_test/include/ct.hrl").
+
+-compile([export_all]).
+
+all() -> [].
+
+init_per_testcase(_, Config) ->
+    ibrowse:start(),
+    pg_test_buddy:start(Config).
+
+end_per_testcase(_, Config) ->
+    pg_test_buddy:stop(Config),
+    ok.
+```
+
+`init_per_testcase/2` does our per test setup logic. For each test, we
+want to start a new postgres with `pg_test_buddy:start/1`
+
+`end_per_testcase/2` does the corresponding teardown.
+
+`all/0` returns a list of `/1` arity functions to run as tests. Since
+ours returns `[]`, this suite doesn't even run. LAME! Let's fix it.
+
+We want to test that our HTML output outputs HTML (crazy, right?), so
+let's write a test!
+
+```erlang
+html(_Config) ->
+    {ok, "200", ResponseHeaders, ResponseBody } = ibrowse:send_req(
+         "http://localhost:8080/albums", [
+        {"Accept", "text/html"}
+        ], get),
+    ct:pal("Response: ~p", [ResponseBody]),
+    [$<,$h,$t,$m,$l|_T] = ResponseBody,
+    ok.
+```
+
+What's cool about common_test, is that it treats every pattern match
+as an assertion. If our ibrowse request returns a non-200 response
+code, the pattern match blows up and it's reported in the log.
+
+This code send the request with the `Accept` header of `text/html` and
+then we pattern match that the response is a list (aka string) that
+starts with an open <html> tag.
+
+It's not a great test, because HTML is meant to be parsed by humans. I
+mean we could write an erlang dom walker, but why?
+
+It returns 200, and the response starts with `<html>`. That's good
+enough for me.
+
+We still have to add `html` to the `all/0` function, or this won't
+run. Once you do, you can go ahead and run it with `rebar3 ct`.
+
+Where's `as test`? well, `ct` and `eunit` commands in rebar3 both
+assume the test profile. Isn't that nice of them?
+
+Once that runs you'll see a bunch of output that ultimately ends with
+`1 Test Passed`. Yay! If you want to see more, try `open
+_build/test/logs/index.html` and your default browser will open an
+html report of the entire test run! You'll even see the output from
+every `ct:pal` function. See, he really was your pal after all.
+
+Let's add the JSON test now!
+
+```erlang
+json(_Config) ->
+    {ok, "200", ResponseHeaders, ResponseBody } = ibrowse:send_req(
+         "http://localhost:8080/albums", [
+        {"Accept", "application/json"}
+        ], get),
+    ct:pal("Response: ~p", [ResponseBody]),
+    JSON = jiffy:decode(ResponseBody),
+    15 = length(JSON),
+    ok.
+```
+
+Same test, but `Accept` is now `application/json` which webmachine is
+just going to eat up! Once we get the response, we can parse it with
+jiffy. You remember jiffy? well he's back in test form.
+
+Now that we've got decoded json, we can run the length/1 function on
+it and see that yes, all 15 of Queen's studio albums are returned.
+
+Again, you still have to add `json` to `all/0`, but once you do, go
+ahead and run `rebar3 ct` again.
+
+You can break the tests and run `rebar3 ct` to see them fail if you
+like. I won't mind.
+
+## Posting Data
+
+Now, you're probably thinking to yourself: "Freddie Mercury was such
+an amazing performer, it's a shame we haven't included any of Queen's
+live albums". You're absolutely right. I can't imagine life without
+"Live at Wembley '86".
+
+Unfortunately, we've lost our keys to the database, and are going to
+need to add these albums via HTTP POST. We're going to want to define
+the data structure that we're going to post. We don't know the UUID
+for something we haven't added yet, so let's just accept the `name`
+and `year` attributes we've accepted before. I'm going to go ahead and
+assume `year` is the release year of the album, not the year it was
+recorded.
+
+So, let's come up with the payload for "Live at Wembley '86".
+
+```javascript
+{
+  "name":"Live at Wembley '86",
+  "year":1992
+}
+```
+
+You know what? We can write a common test to test posting this data to
+our application before we even teach the application how to handle
+it. We're doing TDD in Erlang now!
+
+```erlang
+post_live_at_wembley(_Config) ->
+    {ok, "201", ResponseHeaders, ResponseBody } = ibrowse:send_req(
+         "http://localhost:8080/albums", [
+        {"Content-Type", "application/json"},
+        {"Accept", "application/json"}
+        ], post, "{\"name\":\"Live at Wembley '86\",\"year\":1992}"),
+    ct:pal("Response: ~p", [ResponseBody]),
+    JSON = jiffy:decode(ResponseBody),
+
+    {ok, "200", ResponseHeaders2, ResponseBody2 } = ibrowse:send_req(
+         "http://localhost:8080/albums", [
+        {"Accept", "application/json"}
+        ], get),
+    ct:pal("Response: ~p", [ResponseBody2]),
+    JSON2 = jiffy:decode(ResponseBody2),
+    16 = length(JSON2),
+    ok.
+```
+
+We do the POST and make sure we're getting 16 albums back now. Of
+course we don't. In fact, we get an error when we try to POST. You can
+`open _build/test/logs/index.html` to see what happened, but I'll tell
+you. We expected a 201, but we got a 405. 405, method not allowed on
+this resource. What's up with that?
+
+What's up with that is there's a webmachine callback for what methods
+are accepted on the resource. Guess what the default is? Did you say
+`GET`? You'd be wrong, it's `GET` and `HEAD`. Let's add `POST` to our
+`queen_album_resource` by adding the following function:
+
+```erlang
+allowed_methods(Req, State) ->
+    {['GET','POST'], Req, State}.
+```
+
+All of these callbacks have the same API. They take in a Request
+record and the resource state, and they return a 3-tuple of the
+callback's answer, the request object, and the resource's state
+(possibly modified). I know it can't be modified, it'd be a new state
+record that looks suspiciously like the old one. In this case, it is
+the old one.
+
+We need to add a few more callbacks before we're in business here, the
+first is another simple one.
+
+```erlang
+post_is_create(Req, State) ->
+    {true, Req, State}.
+```
+
+It's just saying that POST means create a new object.

@@ -1,5 +1,7 @@
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
+DROP TABLE IF EXISTS albums;
+
 CREATE TABLE albums (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     name TEXT,
