@@ -1300,3 +1300,64 @@ post_is_create(Req, State) ->
 ```
 
 It's just saying that POST means create a new object.
+
+We're also going to need to create the path for this POST, and we're
+going to create the UUID in erlang to do it.
+
+We'll need a UUID library for that, so add this to your rebar.config
+
+```erlang
+{uuid, ".*",
+     {git, "git://github.com/okeuday/uuid.git", {tag, "v1.3.2"}}},
+```
+
+and now we'll work on the `create_path/2` callback
+
+```erlang
+create_path(Req, State) ->
+    Id = uuid:uuid_to_string(uuid:get_v4()),
+    {"/albums/" ++ Id, Req, State}.
+```
+
+That was easy, and now that will get returned in our `Location` header
+for free. Thanks, Webmachine!
+
+We also need to tell our resource that it can ACCEPT the
+"application/json" content type.
+
+```erlang
+content_types_accepted(Req, State) ->
+   {[{"application/json", from_json}], Req, State}.
+```
+
+`from_json` is a handler, just like `to_json` so we'll have to
+implement it before this works.
+
+```erlang
+from_json(Req, State) ->
+    %% Create path made us a UUID, let's get it
+    ["albums", Id] = string:tokens(wrq:disp_path(Req), "/"),
+
+    %% Read the JSON from the request
+    BinJSON = wrq:req_body(Req),
+    JSON = jiffy:decode(BinJSON),
+
+    %% Now massage it into our sqerl record
+    NewAlbum = queen_album_obj:setvals(
+        [
+            {id, Id},
+            {name, ej:get([<<"name">>], JSON)},
+            {year, ej:get([<<"year">>], JSON)}
+        ],
+        queen_album_obj:'#new'()
+        ),
+
+    %% Insert It
+    [InsertedAlbum] = sqerl_rec:insert(NewAlbum),
+
+    %% Let's report back the inserted object, so we know the new UUID in the client
+    ReturnJSON = ej:set([<<"id">>], JSON, queen_album_obj:getval(id, InsertedAlbum)),
+    ResponseBody = erlang:iolist_to_binary(jiffy:encode(ReturnJSON)),
+    NewReq = wrq:set_resp_body(ResponseBody, Req),
+    {true, NewReq, State}.
+```

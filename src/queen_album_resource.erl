@@ -3,9 +3,14 @@
 -export([
     routes/0,
     init/1,
+    allowed_methods/2,
+    post_is_create/2,
+    create_path/2,
     to_html/2,
     to_json/2,
-    content_types_provided/2
+    content_types_provided/2,
+    content_types_accepted/2,
+    from_json/2
 ]).
 
 -include_lib("webmachine/include/webmachine.hrl").
@@ -33,6 +38,22 @@ content_types_provided(Req, State) ->
         {"text/html", to_html}
     ], Req, State}.
 
+content_types_accepted(Req, State) ->
+    {[
+        {"application/json", from_json}
+    ], Req, State}.
+
+
+allowed_methods(Req, State) ->
+    {['GET','POST'], Req, State}.
+
+post_is_create(Req, State) ->
+    {true, Req, State}.
+
+create_path(Req, State) ->
+    Id = uuid:uuid_to_string(uuid:get_v4()),
+    {"/albums/" ++ Id, Req, State}.
+
 to_html(ReqData, State=#q_album_resource_state{albums=Albums}) ->
     HTML = "<html><body>"
     ++ "<h2>Queen Albums</h2>"
@@ -57,3 +78,30 @@ to_json(ReqData, State=#q_album_resource_state{albums=Albums}) ->
     || Album <- Albums],
     AlbumsJSON = jiffy:encode(AlbumsForJSON),
     {AlbumsJSON, ReqData, State}.
+
+from_json(Req, State) ->
+    %% Create path made us a UUID, let's get it
+    ["albums", Id] = string:tokens(wrq:disp_path(Req), "/"),
+
+    %% Read the JSON from the request
+    BinJSON = wrq:req_body(Req),
+    JSON = jiffy:decode(BinJSON),
+
+    %% Now massage it into our sqerl record
+    NewAlbum = queen_album_obj:setvals(
+        [
+            {id, Id},
+            {name, ej:get([<<"name">>], JSON)},
+            {year, ej:get([<<"year">>], JSON)}
+        ],
+        queen_album_obj:'#new'()
+        ),
+
+    %% Insert It
+    [InsertedAlbum] = sqerl_rec:insert(NewAlbum),
+
+    %% Let's report back the inserted object, so we know the new UUID in the client
+    ReturnJSON = ej:set([<<"id">>], JSON, queen_album_obj:getval(id, InsertedAlbum)),
+    ResponseBody = erlang:iolist_to_binary(jiffy:encode(ReturnJSON)),
+    NewReq = wrq:set_resp_body(ResponseBody, Req),
+    {true, NewReq, State}.

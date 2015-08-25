@@ -35,7 +35,7 @@ json(_Config) ->
     ok.
 
 post_live_at_wembley(_Config) ->
-    {ok, "200", ResponseHeaders, ResponseBody } = ibrowse:send_req(
+    {ok, "201", ResponseHeaders, ResponseBody } = ibrowse:send_req(
          "http://localhost:8080/albums", [
         {"Content-Type", "application/json"},
         {"Accept", "application/json"}
@@ -47,7 +47,7 @@ post_live_at_wembley(_Config) ->
          "http://localhost:8080/albums", [
         {"Accept", "application/json"}
         ], get),
-    ct:pal("Response: ~p", [ResponseBody2]),
+    ct:pal("Response2: ~p", [ResponseBody2]),
     JSON2 = jiffy:decode(ResponseBody2),
     16 = length(JSON2),
     ok.
