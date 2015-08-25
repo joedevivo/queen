@@ -1504,3 +1504,25 @@ we removed were:
 ```
 
 I think this is a lot to take. Let's see how far we get.
+
+There are lots more callbacks for different things, but I think we're
+better of looking in more detail at the Webmachine state diagram
+first.
+
+[Webmachine State Diagram](https://raw.githubusercontent.com/wiki/webmachine/webmachine/images/http-headers-status-v3.png)
+
+This is v3 of the diagram, and it has a coordinate system with
+numbered rows and lettered columns. If you look at
+[webmachine_decision_core:decision/1](https://github.com/webmachine/webmachine/blob/master/src/webmachine_decision_core.erl#L159)
+you'll see all sorts of clauses with atoms like `v3b13` which means
+`v3`'s column `b`, row `13`. Usually these decision points fork to an
+HTTP status code, or continue through the state. If you're ever
+wondering what callback to use, try looking at the diagram.
+
+[Here](https://github.com/webmachine/webmachine/wiki/Resource-Functions)'s
+a wiki page that lists all the webmachine resource callbacks. In fact,
+the whole webmachine wiki is pretty decent.
+
+You can also learn more about
+[Sqerl](https://github.com/chef/sqerl). The readme is pretty good if I
+do say so myself.
