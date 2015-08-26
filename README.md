@@ -753,8 +753,8 @@ to_html(ReqData, State) ->
 
 ```
 
-Now our browser will return "I want it all!", but a rest client with a
-Content-Type of "application/json" in the request header will still
+Now our browser will return "I want it all!", but a rest client with an
+Accept of "application/json" in the request header will still
 get our JSON.
 
 But that's dumb. Let's make these content handlers do the job they
@@ -813,14 +813,13 @@ Now let's make our to_html use the same data
 
 ```erlang
 to_html(ReqData, State=#q_album_resource_state{albums=Albums}) ->
-    HTML = "<html><body>"
-    ++ "<h2>Queen Albums</h2>"
-    ++ "<ul>"
-    ++ [ io_lib:format(
-             "<li>~s (~p)</li>~n",
-             [ej:get({"name"}, Album), ej:get({"year"}, Album)])
-       || Album <- Albums]
-    ++ "</ul></body></html>",
+    HTML = ["<html><body>",
+            "<h2>Queen Albums</h2>",
+            "<ul>",
+            [ io_lib:format("<li>~s (~p)</li>~n",
+                            [ej:get({"name"}, Album), ej:get({"year"}, Album)])
+             || Album <- Albums],
+            "</ul></body></html>"],
     {HTML, ReqData, State}.
 ```
 
@@ -1012,16 +1011,14 @@ this new structure
 
 ```erlang
 to_html(ReqData, State=#q_album_resource_state{albums=Albums}) ->
-    HTML = "<html><body>"
-    ++ "<h2>Queen Albums</h2>"
-    ++ "<ul>"
-    ++ [ io_lib:format("<li>~s (~p)</li>~n",
-        [
-            queen_album_obj:getval('name', Album),
-            queen_album_obj:getval('year', Album),
-        ])
-    || Album <- Albums]
-    ++ "</ul></body></html>",
+    HTML = ["<html><body>",
+            "<h2>Queen Albums</h2>",
+            "<ul>",
+            [ io_lib:format("<li>~s (~p)</li>~n",
+                            [queen_album_obj:getval('name', Album),
+                             queen_album_obj:getval('year', Album)])
+             || Album <- Albums],
+            "</ul></body></html>"],
     {HTML, ReqData, State}.
 ```
 
@@ -1299,7 +1296,7 @@ post_is_create(Req, State) ->
     {true, Req, State}.
 ```
 
-It's just saying that POST means create a new object.
+It's just saying that POST to this URL means create a new resource.
 
 We're also going to need to create the path for this POST, and we're
 going to create the UUID in erlang to do it.
@@ -1336,6 +1333,7 @@ implement it before this works.
 ```erlang
 from_json(Req, State) ->
     %% Create path made us a UUID, let's get it
+    %% This would be easier if we put it in the State record, but hey, it's just a tutorial
     ["albums", Id] = string:tokens(wrq:disp_path(Req), "/"),
 
     %% Read the JSON from the request
@@ -1537,7 +1535,7 @@ resource_exists(Req, State) ->
 ```
 
 There are lots more callbacks for different things, but I think we're
-better of looking in more detail at the Webmachine state diagram
+better off looking in more detail at the Webmachine state diagram
 first.
 
 [Webmachine State Diagram](https://raw.githubusercontent.com/wiki/webmachine/webmachine/images/http-headers-status-v3.png)
