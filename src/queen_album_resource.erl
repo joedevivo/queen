@@ -11,6 +11,7 @@
     content_types_provided/2,
     content_types_accepted/2,
     malformed_request/2,
+    resource_exists/2,
     from_json/2
 ]).
 
@@ -28,11 +29,7 @@ routes() ->
 
 -spec init(list()) -> {ok, term()}.
 init([]) ->
-    Albums = sqerl_rec:fetch_all(queen_album_obj),
-    InitialState = #q_album_resource_state{
-        albums=Albums
-    },
-    {{trace, "/tmp/traces"}, InitialState}.
+    {{trace, "/tmp/traces"}, #q_album_resource_state{}}.
 
 content_types_provided(Req, State) ->
     {[
@@ -71,6 +68,18 @@ malformed_request(ReqData, State) ->
             {IsMalformed, ReqData, State#q_album_resource_state{decoded_body=JSON}};
         _ ->
             {false, ReqData, State}
+        end.
+
+resource_exists(Req, State) ->
+    case wrq:method(Req) of
+        'GET' ->
+            Albums = sqerl_rec:fetch_all(queen_album_obj),
+            NewState = State#q_album_resource_state{
+                albums=Albums
+            },
+            {true, Req, NewState};
+        _ ->
+            {true, Req, State}
         end.
 
 to_html(ReqData, State=#q_album_resource_state{albums=Albums}) ->

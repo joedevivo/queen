@@ -1505,6 +1505,37 @@ we removed were:
 
 I think this is a lot to take. Let's see how far we get.
 
+We still have a problem in that we're querying for all albums on every
+request, even the `POST` which makes *NO* sense.
+
+What we're going to do is move (AKA Refactor) the database call into
+the `resource_exists` callback. Then one day when we add `DELETE` or
+`PUT` method, we can do operations on the database there too.
+
+We'll remove the database call from `init/1`, simplifying it
+significantly:
+
+```erlang
+init([]) ->
+    {{trace, "/tmp/traces"}, #q_album_resource_state{}}.
+```
+
+And add a `resource_exists/2` callback
+
+```erlang
+resource_exists(Req, State) ->
+    case wrq:method(Req) of
+        'GET' ->
+            Albums = sqerl_rec:fetch_all(queen_album_obj),
+            NewState = State#q_album_resource_state{
+                albums=Albums
+            },
+            {true, Req, NewState};
+        _ ->
+            {true, Req, State}
+        end.
+```
+
 There are lots more callbacks for different things, but I think we're
 better of looking in more detail at the Webmachine state diagram
 first.
