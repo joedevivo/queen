@@ -83,16 +83,14 @@ resource_exists(Req, State) ->
         end.
 
 to_html(ReqData, State=#q_album_resource_state{albums=Albums}) ->
-    HTML = "<html><body>"
-    ++ "<h2>Queen Albums</h2>"
-    ++ "<ul>"
-    ++ [ io_lib:format("<li>~s (~p)</li>~n",
-        [
-            queen_album_obj:getval('name', Album),
-            queen_album_obj:getval('year', Album)
-        ])
-    || Album <- Albums]
-    ++ "</ul></body></html>",
+    HTML = ["<html><body>",
+            "<h2>Queen Albums</h2>",
+            "<ul>",
+            [ io_lib:format("<li>~s (~p)</li>~n",
+                           [queen_album_obj:getval('name', Album),
+                            queen_album_obj:getval('year', Album)])
+             || Album <- Albums],
+            "</ul></body></html>"],
     {HTML, ReqData, State}.
 
 -spec to_json(wrq:reqdata(), term()) -> {iodata(), wrq:reqdata(), term()}.
