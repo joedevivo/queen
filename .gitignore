@@ -3,3 +3,6 @@ rebar3
 relx
 ebin
 *.beam
+log
+_checkouts
+compile_commands.json
